@@ -1,0 +1,168 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Bob Sievert"
+date: "February 28, 2016"
+output: html_document
+---
+
+#Summary 
+
+When exercising, one thing that people regularly do is quantify how much of a particular activity they do, but
+they rarely quantify how well they do it. Quantifying how well someone executes a particular exercise was a
+focus of a paper by Velloso, et. al, for ACM SIGCHI 2013.
+
+This analysis uses the data set employed in that study.  Data was captured from sensors worn by participants
+performing sets of 10 repetitions of the Unilateral Recognition Biceps Curl.  Sensors were located on a belt,
+an arm band, a glove, and on the dumbell itself.  Participants were asked to perform the curl in five different
+ways - once according to the exact exercise specification and four more times with common mistakes.
+
+The goal of the analysis is to use the data captured by the sensors to build a model that can correctly
+classify a repetition set into one of the five classes - the correct way and which of the four wrong ways.
+        
+#Analysis
+
+Prior to starting the analysis, all relevant libraries get loaded:
+```{r, results="hide"}
+library("dplyr", lib.loc="C:/Program Files/R/R-3.2.3/library")
+library("caret", lib.loc="C:/Program Files/R/R-3.2.3/library")
+```
+
+
+The first steps for this analysis include accessing the data, downloading the data, and loading the data:
+```{r, results="hide"}
+if(!file.exists("c:\\machine-project")) {
+        dir.create("c:\\machine-project")
+}
+setwd("c:\\machine-project")
+trainingUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(trainingUrl, "prj-training.csv", method = "curl" )
+prjtrain <- read.csv("c:\\machine-project\\prj-training.csv")
+```
+
+Then take a first look at the data.
+```{r, results="hide"}
+str(prjtrain)
+summary(prjtrain)
+```
+The data set contains 19622 observations of 160 variables.  And, in addition to showing the presence of a 
+large number of NA's, summary results also showed values of "#DIV/0!", which should also be treated as NA's.
+Those fields tended to be aggregate fields like the variance, skewness, and kurtosis of the various measurements
+and were listed as factors when viewing the results of the structure function. 
+
+So the training csv file was re-read to handle those conditions.
+```{r, results="hide"}
+prjtrain <- read.table("c:\\machine-project\\prj-training.csv", header = TRUE, sep = ","
+                       , dec = ".", na.strings = c("NA","#DIV/0!") )
+```
+Then take another look at the data.
+```{r, results="hide"}
+str(prjtrain)
+summary(prjtrain)
+```
+With the NA's properly accounted for, the summary results showed that the aggregate fields were almost entirely NA's,
+most of them having exactly 19216 rows as NA, with a few more fields showing nothing but zeroes. For Example:
+```{r, echo=FALSE}
+summary(prjtrain[,146:150])
+```
+The counts of yes & no from the new_window variable looked like it might reflect the pattern of NA counts.
+```{r, echo=FALSE}
+summary(prjtrain[,6])
+```
+So the new_window field was used to subset the data.
+```{r}
+prjtrain <- filter(prjtrain, new_window == "no")
+```
+And the summary was examined again.  For example:
+```{r, echo=FALSE}
+summary(prjtrain[,146:150])
+```
+So it was clear that the aggregate fields only contained values for 406 rows, and that those rows occurred when
+"new_window" was yes.  For a model that would be capable of classifying an exercise at any point in the set, those
+fields would not be useful, so they were removed from the initial training set.
+```{r, results="hide"}
+prjtrain <- select(prjtrain, -one_of("kurtosis_roll_belt","kurtosis_picth_belt","kurtosis_yaw_belt"
+                                ,"skewness_roll_belt","skewness_roll_belt.1","skewness_yaw_belt","max_roll_belt"
+                                ,"max_picth_belt","max_yaw_belt","min_roll_belt","min_pitch_belt","min_yaw_belt"
+                                ,"amplitude_roll_belt","amplitude_pitch_belt","amplitude_yaw_belt","var_total_accel_belt"
+                                ,"avg_roll_belt","stddev_roll_belt","var_roll_belt","avg_pitch_belt","stddev_pitch_belt"
+                                ,"var_pitch_belt","avg_yaw_belt","stddev_yaw_belt","var_yaw_belt","var_accel_arm"
+                                ,"avg_roll_arm","stddev_roll_arm","var_roll_arm","avg_pitch_arm","stddev_pitch_arm"
+                                ,"var_pitch_arm","avg_yaw_arm","stddev_yaw_arm","var_yaw_arm","kurtosis_roll_arm"
+                                ,"kurtosis_picth_arm","kurtosis_yaw_arm","skewness_roll_arm","skewness_pitch_arm"
+                                ,"skewness_yaw_arm","max_roll_arm","max_picth_arm","max_yaw_arm","min_roll_arm"
+                                ,"min_pitch_arm","min_yaw_arm","amplitude_roll_arm","amplitude_pitch_arm"
+                                ,"amplitude_yaw_arm","kurtosis_roll_dumbbell","kurtosis_picth_dumbbell"
+                                ,"kurtosis_yaw_dumbbell","skewness_roll_dumbbell","skewness_pitch_dumbbell"
+                                ,"skewness_yaw_dumbbell","max_roll_dumbbell","max_picth_dumbbell" 
+                                ,"max_yaw_dumbbell","min_roll_dumbbell","min_pitch_dumbbell","min_yaw_dumbbell" 
+                                ,"amplitude_roll_dumbbell","amplitude_pitch_dumbbell","amplitude_yaw_dumbbell"
+                                ,"var_accel_dumbbell","avg_roll_dumbbell","stddev_roll_dumbbell","var_roll_dumbbell"
+                                ,"avg_pitch_dumbbell","stddev_pitch_dumbbell","var_pitch_dumbbell","avg_yaw_dumbbell"
+                                ,"stddev_yaw_dumbbell","var_yaw_dumbbell","kurtosis_roll_forearm","kurtosis_picth_forearm"
+                                ,"kurtosis_yaw_forearm","skewness_roll_forearm"
+                                ,"skewness_pitch_forearm","skewness_yaw_forearm","max_roll_forearm","max_picth_forearm" 
+                                ,"max_yaw_forearm","min_roll_forearm","min_pitch_forearm","min_yaw_forearm"
+                                ,"amplitude_roll_forearm","amplitude_pitch_forearm","amplitude_yaw_forearm","var_accel_forearm"
+                                ,"avg_roll_forearm","stddev_roll_forearm","var_roll_forearm","avg_pitch_forearm"
+                                ,"stddev_pitch_forearm","var_pitch_forearm","avg_yaw_forearm"
+                                ,"stddev_yaw_forearm","var_yaw_forearm" ))
+summary(prjtrain)
+```
+There is no doubt a more elegant way to remove the columns, but brute force worked just fine.  The results
+from the summary show 19216 observations with 60 variables.
+
+This reduced data set is split into training and test sets, where the counts of weightlifting classes are
+virtually identical:
+```{r, results="hide"}
+intrain <- createDataPartition(y=prjtrain$classe, p = 0.5, list = FALSE)
+training <- prjtrain[intrain,]
+testing <- prjtrain[-intrain,]
+```
+
+```{r, echo=FALSE}
+rbind(c("training",summary(training$classe))
+      ,c("testing", summary(testing$classe)))
+```
+
+The first seven columns are primarily identifiers:
+```{r, echo=FALSE}
+summary(training[1:7])
+```
+They identify row numbers, participants, timestamps, and time intervals.  These fields do not seem necessary
+for building models, so will be removed to create the actual data set for modeling.
+```{r, echo=FALSE}
+traincol <- training[,8:60]
+```
+
+The training result from the first model turned out to be quite good, with an overall error rate of 1.08%.
+Unfortunately, a seed was not set for that version, so it is hoped that, with a seed, a similar result can
+be achieved.  The first model uses "randomForest" and is called fit1.
+
+```{r}
+set.seed(111)
+date()
+fit1 <- train(classe~.,method="rf",data=traincol)
+date()
+```
+
+The first model took around 45 minutes to build and this iteration is virtually the same. Returning the final
+model is much quicker.
+
+```{r}
+date()
+fit1$finalModel
+date()
+```
+
+An estimated error rate of 1.17% is very good and, should it hold up when the model is applied to the testing set,
+actually can't get much better. Fortunately, prediction does not take very long as compared to the model fitting.
+
+```{r}
+predfit1 <- predict(fit1, newdata = testing)
+confusionMatrix(predfit1,testing$classe)
+```
+
+The accuracy of the model on the testing set is 98.89%, and while it may be possible to improve the accuracy of the
+model a few more tics, it's already good enough, and it is equally likely that additional effort won't improve the
+accuracy at all.  On the other hand, a model with fewer variables may take less time to fit, but again the first 
+model is easily good enough and already built.
